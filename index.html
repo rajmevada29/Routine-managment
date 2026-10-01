@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>❄️ Winter Arc Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ===================== AUTH SECTION ===================== -->
+  <div id="auth-section">
+
+    <!-- LANDING PAGE -->
+    <div id="landing-page" class="auth-page active">
+      <div class="snow-bg">
+        <div class="snowflakes" aria-hidden="true">
+          <div class="snowflake">❅</div><div class="snowflake">❆</div>
+          <div class="snowflake">❅</div><div class="snowflake">❆</div>
+          <div class="snowflake">❅</div><div class="snowflake">❆</div>
+          <div class="snowflake">❅</div><div class="snowflake">❆</div>
+          <div class="snowflake">❅</div><div class="snowflake">❆</div>
+        </div>
+        <div class="landing-content">
+          <div class="landing-logo">❄️</div>
+          <h1 class="landing-title">WINTER ARC</h1>
+          <p class="landing-sub">Track your habits. Crush your goals. Become your best self.</p>
+          <div class="landing-btns">
+            <button class="btn btn-primary" onclick="showPage('signup-page')">Get Started</button>
+            <button class="btn btn-outline" onclick="showPage('login-page')">Sign In</button>
+          </div>
+          <div class="landing-features">
+            <div class="feat"><span>📋</span><p>Custom Habits</p></div>
+            <div class="feat"><span>😴</span><p>Sleep Tracker</p></div>
+            <div class="feat"><span>🎯</span><p>Monthly Goals</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIGN UP PAGE -->
+    <div id="signup-page" class="auth-page">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-header">
+            <span class="auth-icon">❄️</span>
+            <h2>Create Account</h2>
+            <p>Begin your Winter Arc journey</p>
+          </div>
+          <form id="signup-form" onsubmit="handleSignup(event)">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="su-name" placeholder="Enter your name" required />
+            </div>
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="su-username" placeholder="Choose a username" required />
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="su-email" placeholder="Enter your email" required />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="su-password" placeholder="Create a password (min 6 chars)" required minlength="6" />
+            </div>
+            <div class="form-group">
+              <label>Confirm Password</label>
+              <input type="password" id="su-confirm" placeholder="Confirm your password" required />
+            </div>
+            <div id="signup-error" class="form-error"></div>
+            <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+          </form>
+          <p class="auth-switch">Already have an account? <a href="#" onclick="showPage('login-page')">Sign In</a></p>
+          <button class="btn-back" onclick="showPage('landing-page')">← Back to Home</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGIN PAGE -->
+    <div id="login-page" class="auth-page">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-header">
+            <span class="auth-icon">❄️</span>
+            <h2>Welcome Back</h2>
+            <p>Continue your Winter Arc</p>
+          </div>
+          <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+              <label>Username or Email</label>
+              <input type="text" id="li-username" placeholder="Enter username or email" required />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="li-password" placeholder="Enter your password" required />
+            </div>
+            <div id="login-error" class="form-error"></div>
+            <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+          </form>
+          <p class="auth-switch">Don't have an account? <a href="#" onclick="showPage('signup-page')">Sign Up</a></p>
+          <button class="btn-back" onclick="showPage('landing-page')">← Back to Home</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /auth-section -->
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="app-section" style="display:none;">
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+      <div class="nav-brand">
+        <span>❄️</span>
+        <span>WINTER ARC TRACKER</span>
+      </div>
+      <div class="nav-right">
+        <span id="nav-username" class="user-badge"></span>
+        <button class="btn-logout" onclick="logout()">Logout</button>
+      </div>
+    </nav>
+
+    <!-- MONTH / YEAR SELECTOR BAR -->
+    <div class="month-bar">
+      <div class="month-greeting">
+        <span id="user-greeting"></span>
+      </div>
+      <div class="month-selectors">
+        <label class="sel-label">Month</label>
+        <select id="sel-month" class="sel-dropdown" onchange="onMonthChange()">
+          <option value="0">January</option>
+          <option value="1">February</option>
+          <option value="2">March</option>
+          <option value="3">April</option>
+          <option value="4">May</option>
+          <option value="5">June</option>
+          <option value="6">July</option>
+          <option value="7">August</option>
+          <option value="8">September</option>
+          <option value="9">October</option>
+          <option value="10">November</option>
+          <option value="11">December</option>
+        </select>
+        <label class="sel-label">Year</label>
+        <select id="sel-year" class="sel-dropdown" onchange="onMonthChange()"></select>
+      </div>
+    </div>
+
+    <!-- ===================== TRACKER PAGE (all sections stacked) ===================== -->
+    <div class="tracker-page">
+
+      <!-- ── SECTION 1: HABIT TRACKER ── -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-block">
+            <h2 class="section-title">❄️ WINTER ARC TRACKER</h2>
+            <span id="habits-month-label" class="section-month-tag"></span>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="openAddHabit()">+ Add Habit</button>
+        </div>
+
+        <div class="tracker-scroll">
+          <table class="tracker-table" id="habits-table">
+            <thead>
+              <tr id="habits-header-row">
+                <th class="habit-name-col">HABITS / DAYS</th>
+              </tr>
+            </thead>
+            <tbody id="habits-body"></tbody>
+          </table>
+        </div>
+
+        <div class="habit-legend">
+          <span class="legend-item"><span class="legend-dot checked"></span>Completed</span>
+          <span class="legend-item"><span class="legend-dot missed"></span>Missed</span>
+          <span class="legend-item"><span class="legend-dot empty"></span>Not logged</span>
+          <span class="legend-tip">Click a cell to toggle</span>
+        </div>
+      </div>
+
+      <!-- ── SECTION 2: SLEEP TRACKER ── -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-block">
+            <h2 class="section-title">😴 SLEEP TRACKER</h2>
+            <span id="sleep-month-label" class="section-month-tag"></span>
+          </div>
+          <div id="sleep-avg-badge" class="sleep-avg-badge"></div>
+        </div>
+
+        <div class="tracker-scroll">
+          <table class="tracker-table" id="sleep-table">
+            <thead>
+              <tr id="sleep-header-row">
+                <th class="habit-name-col">Sleep / Days</th>
+              </tr>
+            </thead>
+            <tbody id="sleep-body"></tbody>
+          </table>
+        </div>
+
+        <div id="sleep-stats" class="sleep-stats-bar"></div>
+
+        <div class="sleep-color-legend">
+          <span class="sl-item sl-4">4 hrs</span>
+          <span class="sl-item sl-5">5 hrs</span>
+          <span class="sl-item sl-6">6 hrs</span>
+          <span class="sl-item sl-7">7 hrs</span>
+          <span class="sl-item sl-8">8 hrs</span>
+          <span class="sl-item sl-9">9 hrs</span>
+          <span class="sl-item sl-10">10 hrs</span>
+        </div>
+      </div>
+
+      <!-- ── SECTION 3: MONTHLY GOALS ── -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-block">
+            <h2 class="section-title">🎯 MONTHLY GOALS</h2>
+            <span id="monthly-month-label" class="section-month-tag"></span>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="saveMonthlyGoals()">💾 Save</button>
+        </div>
+
+        <!-- 3-column layout matching the image -->
+        <div class="monthly-grid">
+          <div class="monthly-col">
+            <div class="monthly-col-header">MY MONTHLY GOAL</div>
+            <textarea id="monthly-goal" placeholder="Write your goals for this month..." class="monthly-textarea"></textarea>
+          </div>
+          <div class="monthly-col">
+            <div class="monthly-col-header">WHAT I HAVE ACHIEVED THIS MONTH</div>
+            <textarea id="monthly-achieved" placeholder="What have you achieved so far..." class="monthly-textarea"></textarea>
+          </div>
+          <div class="monthly-col">
+            <div class="monthly-col-header">WHAT SHOULD I IMPROVE</div>
+            <textarea id="monthly-improve" placeholder="Areas you want to improve..." class="monthly-textarea"></textarea>
+          </div>
+        </div>
+        <div id="monthly-save-msg" class="save-msg"></div>
+
+        <!-- Habit completion summary -->
+        <div class="monthly-summary">
+          <h3 class="summary-title">📊 Habit Completion — <span id="summary-month-label"></span></h3>
+          <div id="monthly-summary-content" class="summary-cards"></div>
+        </div>
+      </div>
+
+    </div><!-- /tracker-page -->
+
+  </div><!-- /app-section -->
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Add Habit Modal -->
+  <div id="modal-add-habit" class="modal-overlay" onclick="closeModal('modal-add-habit')">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>➕ Add New Habit</h3>
+        <button class="modal-close" onclick="closeModal('modal-add-habit')">×</button>
+      </div>
+      <div class="form-group">
+        <label>Habit Name</label>
+        <input type="text" id="new-habit-name" placeholder="e.g. Morning Workout, Read 30 min..." />
+      </div>
+      <div class="form-group">
+        <label>Emoji (optional)</label>
+        <input type="text" id="new-habit-emoji" placeholder="e.g. 🏋️  📖  🧘  💧" maxlength="4" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-add-habit')">Cancel</button>
+        <button class="btn btn-primary" onclick="addHabit()">Add Habit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sleep Log Modal -->
+  <div id="modal-sleep" class="modal-overlay" onclick="closeModal('modal-sleep')">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>😴 Log Sleep Hours</h3>
+        <button class="modal-close" onclick="closeModal('modal-sleep')">×</button>
+      </div>
+      <p id="sleep-modal-day" class="sleep-day-label"></p>
+      <div class="sleep-hour-grid">
+        <button class="sleep-hr-btn" onclick="setSleep(4)">4 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(5)">5 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(6)">6 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(7)">7 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(8)">8 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(9)">9 hrs</button>
+        <button class="sleep-hr-btn" onclick="setSleep(10)">10 hrs</button>
+        <button class="sleep-hr-btn btn-clear" onclick="setSleep(0)">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
