@@ -1,51 +1,101 @@
 # ❄️ Winter Arc Tracker
 
-A complete habit & routine tracking web app built with pure HTML, CSS, and JavaScript — no frameworks, no backend needed. All data is stored locally in your browser using `localStorage`.
+A complete habit & routine tracking web app with **Firebase cloud sync** — your data works across all devices. Built with HTML, CSS, and JavaScript.
 
 ![Winter Arc Tracker](https://img.shields.io/badge/Winter%20Arc-Tracker-blue?style=for-the-badge&logo=snowflake)
 
 ## ✨ Features
 
-- 🔐 **Sign Up & Login** — Multi-user auth system with per-user data isolation
-- 📋 **Custom Habit Tracker** — Add up to 15 personal habits, track daily across a 31-day grid
-- 😴 **Sleep Tracker** — Log sleep hours (4–10 hrs) per night with color-coded rows
-- 🎯 **Monthly Goals** — 3-column layout: My Goal / What I Achieved / What to Improve
-- 📅 **Multi-month support** — Switch any month & year via dropdowns; all data persists
-- 📊 **Habit Summary** — Progress bars showing % completion for each habit
-- 💾 **Persistent data** — All user data survives page refresh via localStorage
+- 🔐 **Sign Up & Login** — Firebase Authentication (email + password)
+- 📋 **Custom Habit Tracker** — Up to 15 habits, 31-day grid, click to toggle ✓/✕
+- 😴 **Sleep Tracker** — Log 4–10 hrs per night, color-coded grid + stats
+- 🎯 **Monthly Goals** — 3-column layout: Goal / Achieved / Improve
+- 📅 **Multi-month tracking** — Switch months & years via dropdowns
+- 📊 **Habit Summary** — % completion bars for each habit
+- ☁️ **Cloud Sync** — Data saved to Firestore, accessible from any device
+- 📱 **Offline Support** — Works without internet, syncs when back online
+- 🎨 **Light Theme** — Clean, responsive design
 
 ## 🗂️ File Structure
 
 ```
 Winter Arc/
-├── index.html    # Main HTML (auth pages + tracker layout)
-├── style.css     # All styles (light theme, responsive)
-├── app.js        # All logic (auth, habit/sleep/goal tracking)
+├── index.html     # Main HTML + Firebase SDKs
+├── style.css      # Styles (light theme, responsive)
+├── app.js         # Firebase Auth + Firestore logic
 └── README.md
 ```
 
-## 🚀 How to Use
+## 🔧 Firebase Setup (Required)
 
-1. Open `index.html` in any modern browser
-2. Click **Get Started** to create an account
-3. Log in and start tracking your habits!
+Before deploying, you need to create a **free Firebase project**:
 
-> No server or installation needed — just open the file directly.
+### Step 1: Create Firebase Project
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Click **"Add Project"** → name it → disable Analytics (optional) → **Create Project**
 
-## 📸 Layout (matches original tracker)
+### Step 2: Enable Authentication
+1. In your project → **Build** → **Authentication** → **Get Started**
+2. Click **Email/Password** → **Enable** → **Save**
 
-| Section | Description |
-|---|---|
-| Habit Tracker | Custom habits vs days 1–31 grid |
-| Sleep Tracker | Hours (4–10) vs days 1–31 grid |
-| Monthly Goals | Goal / Achieved / Improve columns |
+### Step 3: Create Firestore Database
+1. **Build** → **Firestore Database** → **Create Database**
+2. Select **"Start in test mode"** → Choose a region → **Enable**
 
-## 🛠️ Tech Stack
+### Step 4: Register a Web App
+1. Project Settings (⚙️ gear icon) → **General** → scroll to **"Your apps"**
+2. Click the **Web icon** `</>` → name it (e.g. "Winter Arc") → **Register App**
+3. Copy the `firebaseConfig` object
 
-- **HTML5** — Semantic structure
-- **CSS3** — Custom properties, animations, responsive grid
-- **Vanilla JavaScript** — No dependencies
-- **localStorage** — Client-side data persistence
+### Step 5: Paste Config in `app.js`
+Open `app.js` and replace the placeholder config at the top:
+
+```javascript
+const firebaseConfig = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+```
+
+### Step 6: Set Firestore Rules (for production)
+In Firestore → **Rules** tab, replace with:
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read/write their own data
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Usernames collection — anyone authenticated can read, only create if not exists
+    match /usernames/{username} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+    }
+  }
+}
+```
+
+## 🚀 Deployment Options
+
+| Platform | Free? | How |
+|---|---|---|
+| **Firebase Hosting** | ✅ Free | `firebase deploy` (recommended) |
+| **GitHub Pages** | ✅ Free | Settings → Pages → Deploy from branch |
+| **Vercel** | ✅ Free | Import repo → auto-deploy |
+| **Netlify** | ✅ Free | Drag & drop folder |
+
+### Deploy with Firebase Hosting (Recommended)
+```bash
+npm install -g firebase-tools
+firebase login
+firebase init hosting   # select your project, set public dir to "."
+firebase deploy
+```
 
 ## 📄 License
 

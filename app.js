@@ -1,50 +1,55 @@
 /* =====================================================
-   WINTER ARC TRACKER — Application Logic
+   WINTER ARC TRACKER — Firebase App Logic
+   =====================================================
+   Uses Firebase Auth (Email/Password) + Firestore
+   for cross-device cloud sync.
    ===================================================== */
 
 'use strict';
 
 // ═══════════════════════════════════════════
-// STORAGE
+// FIREBASE CONFIGURATION
+// ═══════════════════════════════════════════
+// Replace these values with YOUR Firebase project config.
+// Get them from: Firebase Console → Project Settings → General → Your apps → Web app
+
+const firebaseConfig = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+
+// ═══════════════════════════════════════════
+// INIT FIREBASE
 // ═══════════════════════════════════════════
 
-const DB_KEY   = 'winterArc_users';
-const SESS_KEY = 'winterArc_session';
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
 
-function getAllUsers()        { return JSON.parse(localStorage.getItem(DB_KEY)   || '{}'); }
-function saveAllUsers(u)     { localStorage.setItem(DB_KEY, JSON.stringify(u)); }
-function getSession()        { return JSON.parse(sessionStorage.getItem(SESS_KEY) || 'null'); }
-function setSession(u)       { sessionStorage.setItem(SESS_KEY, JSON.stringify(u)); }
-function clearSession()      { sessionStorage.removeItem(SESS_KEY); }
-
-function getUserData(username) {
-  return getAllUsers()[username]?.data || newUserData();
-}
-function saveUserData(data) {
-  const users = getAllUsers();
-  const username = getSession();
-  if (!users[username]) return;
-  users[username].data = data;
-  saveAllUsers(users);
-}
-function newUserData() {
-  return {
-    habits:       [],   // [{id, name, emoji}]
-    habitLog:     {},   // { "YYYY-MM": { habitId: { day: 'checked'|'missed' } } }
-    sleepLog:     {},   // { "YYYY-MM": { day: hours } }
-    monthlyGoals: {}    // { "YYYY-MM": { goal, achieved, improve } }
-  };
-}
+// Enable offline persistence (data works even without internet)
+db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+  if (err.code === 'failed-precondition') {
+    console.warn('Firestore persistence: Multiple tabs open, only works in one.');
+  } else if (err.code === 'unimplemented') {
+    console.warn('Firestore persistence: Browser does not support it.');
+  }
+});
 
 // ═══════════════════════════════════════════
 // APP STATE
 // ═══════════════════════════════════════════
 
-let currentUser  = null;
-let userData     = null;
-let currentYear  = new Date().getFullYear();
-let currentMonth = new Date().getMonth();   // 0-based
+let currentUser   = null;  // Firebase auth user
+let userProfile   = null;  // { name, username, email }
+let userData      = null;  // { habits, habitLog, sleepLog, monthlyGoals }
+let currentYear   = new Date().getFullYear();
+let currentMonth  = new Date().getMonth();
 let sleepModalDay = null;
+let saveTimer     = null;  // Debounce timer for auto-save
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -52,7 +57,53 @@ const MONTH_NAMES = [
 ];
 
 // ═══════════════════════════════════════════
-// AUTH — PAGE SWITCHING
+// LOADING OVERLAY
+// ═══════════════════════════════════════════
+
+function showLoading(msg) {
+  const overlay = document.getElementById('loading-overlay');
+  const text = document.getElementById('loading-text');
+  if (msg) text.textContent = msg;
+  overlay.classList.remove('hide');
+  overlay.style.display = 'flex';
+}
+
+function hideLoading() {
+  const overlay = document.getElementById('loading-overlay');
+  overlay.classList.add('hide');
+  setTimeout(() => { overlay.style.display = 'none'; }, 400);
+}
+
+// ═══════════════════════════════════════════
+// AUTH STATE LISTENER (runs on page load)
+// ═══════════════════════════════════════════
+
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    showLoading('Loading your data...');
+    currentUser = user;
+    try {
+      await loadUserProfile();
+      await loadUserData();
+      launchApp();
+    } catch (err) {
+      console.error('Error loading data:', err);
+      showToast('Error loading data. Please try again.');
+      logout();
+    }
+  } else {
+    currentUser = null;
+    userProfile = null;
+    userData    = null;
+    document.getElementById('app-section').style.display  = 'none';
+    document.getElementById('auth-section').style.display = 'block';
+    showPage('landing-page');
+    hideLoading();
+  }
+});
+
+// ═══════════════════════════════════════════
+// AUTH PAGES
 // ═══════════════════════════════════════════
 
 function showPage(pageId) {
@@ -62,10 +113,10 @@ function showPage(pageId) {
 }
 
 // ═══════════════════════════════════════════
-// SIGN UP
+// SIGN UP (Firebase Auth + Firestore profile)
 // ═══════════════════════════════════════════
 
-function handleSignup(e) {
+async function handleSignup(e) {
   e.preventDefault();
   const name     = document.getElementById('su-name').value.trim();
   const username = document.getElementById('su-username').value.trim().toLowerCase();
@@ -73,99 +124,221 @@ function handleSignup(e) {
   const password = document.getElementById('su-password').value;
   const confirm  = document.getElementById('su-confirm').value;
   const errEl    = document.getElementById('signup-error');
+  const btn      = document.getElementById('signup-btn');
+
   errEl.textContent = '';
 
   if (password !== confirm) {
     errEl.textContent = '❌ Passwords do not match.'; return;
   }
   if (!/^[a-z0-9_]{3,20}$/.test(username)) {
-    errEl.textContent = '❌ Username: 3-20 chars, letters / numbers / underscore only.'; return;
+    errEl.textContent = '❌ Username: 3-20 chars, letters/numbers/underscore only.'; return;
   }
 
-  const users = getAllUsers();
-  if (users[username]) {
-    errEl.textContent = '❌ Username already taken. Please choose another.'; return;
-  }
-  if (Object.values(users).some(u => u.email === email)) {
-    errEl.textContent = '❌ An account with this email already exists.'; return;
-  }
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
 
-  users[username] = {
-    name, username, email,
-    passwordHash: simpleHash(password),
-    createdAt: new Date().toISOString(),
-    data: newUserData()
-  };
-  saveAllUsers(users);
-  setSession(username);
-  launchApp(username, users[username]);
+  try {
+    // Check if username is taken
+    const usernameDoc = await db.collection('usernames').doc(username).get();
+    if (usernameDoc.exists) {
+      errEl.textContent = '❌ Username already taken. Please choose another.';
+      btn.disabled = false;
+      btn.textContent = 'Create Account';
+      return;
+    }
+
+    // Create auth user
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    const uid  = cred.user.uid;
+
+    // Save profile to Firestore
+    await db.collection('users').doc(uid).set({
+      name,
+      username,
+      email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Reserve username (for uniqueness check)
+    await db.collection('usernames').doc(username).set({ uid });
+
+    // Initialize empty user data
+    await db.collection('users').doc(uid).collection('data').doc('tracker').set(newUserData());
+
+    showLoading('Setting up your account...');
+    // Auth state listener will handle the rest
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+    errEl.textContent = '❌ ' + firebaseErrorMsg(err);
+  }
 }
 
 // ═══════════════════════════════════════════
-// LOGIN
+// LOGIN (Firebase Auth — email or username)
 // ═══════════════════════════════════════════
 
-function handleLogin(e) {
+async function handleLogin(e) {
   e.preventDefault();
   const identifier = document.getElementById('li-username').value.trim().toLowerCase();
   const password   = document.getElementById('li-password').value;
   const errEl      = document.getElementById('login-error');
+  const btn        = document.getElementById('login-btn');
+
   errEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
 
-  const users = getAllUsers();
-  let foundUser = null, foundKey = null;
-  for (const [key, user] of Object.entries(users)) {
-    if (key === identifier || user.email === identifier) {
-      foundUser = user; foundKey = key; break;
+  try {
+    let email = identifier;
+
+    // If identifier doesn't look like an email, treat it as a username
+    if (!identifier.includes('@')) {
+      const usernameDoc = await db.collection('usernames').doc(identifier).get();
+      if (!usernameDoc.exists) {
+        errEl.textContent = '❌ Username not found.';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        return;
+      }
+      // Look up the user's email from their profile
+      const uid = usernameDoc.data().uid;
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (!userDoc.exists) {
+        errEl.textContent = '❌ Account data not found.';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        return;
+      }
+      email = userDoc.data().email;
     }
-  }
 
-  if (!foundUser || foundUser.passwordHash !== simpleHash(password)) {
-    errEl.textContent = '❌ Invalid username / email or password.'; return;
+    await auth.signInWithEmailAndPassword(email, password);
+    showLoading('Signing in...');
+    // Auth state listener handles the rest
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+    errEl.textContent = '❌ ' + firebaseErrorMsg(err);
   }
-  setSession(foundKey);
-  launchApp(foundKey, foundUser);
 }
 
-function logout() {
-  clearSession();
-  currentUser = null;
-  userData    = null;
-  document.getElementById('app-section').style.display  = 'none';
-  document.getElementById('auth-section').style.display = 'block';
-  showPage('landing-page');
-  document.getElementById('signup-form').reset();
-  document.getElementById('login-form').reset();
+// ═══════════════════════════════════════════
+// LOGOUT
+// ═══════════════════════════════════════════
+
+async function logout() {
+  showLoading('Signing out...');
+  try {
+    await auth.signOut();
+  } catch (err) {
+    console.error('Logout error:', err);
+  }
+  // Auth state listener handles UI reset
+  document.getElementById('signup-form')?.reset();
+  document.getElementById('login-form')?.reset();
   document.getElementById('signup-error').textContent = '';
   document.getElementById('login-error').textContent  = '';
-}
-
-// djb2-style hash — good enough for a local demo
-function simpleHash(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) + str.charCodeAt(i); h |= 0; }
-  return h.toString(16);
+  const signupBtn = document.getElementById('signup-btn');
+  const loginBtn  = document.getElementById('login-btn');
+  if (signupBtn) { signupBtn.disabled = false; signupBtn.textContent = 'Create Account'; }
+  if (loginBtn)  { loginBtn.disabled = false;  loginBtn.textContent = 'Sign In'; }
 }
 
 // ═══════════════════════════════════════════
-// LAUNCH APP
+// FIREBASE ERROR MESSAGES (human-readable)
 // ═══════════════════════════════════════════
 
-function launchApp(username, userObj) {
-  currentUser = username;
-  userData    = getUserData(username);
+function firebaseErrorMsg(err) {
+  const map = {
+    'auth/email-already-in-use':   'An account with this email already exists.',
+    'auth/invalid-email':          'Invalid email address.',
+    'auth/weak-password':          'Password must be at least 6 characters.',
+    'auth/user-not-found':         'No account found with this email.',
+    'auth/wrong-password':         'Incorrect password. Please try again.',
+    'auth/invalid-credential':     'Invalid email or password.',
+    'auth/too-many-requests':      'Too many failed attempts. Please wait and try again.',
+    'auth/network-request-failed': 'Network error. Please check your internet.',
+  };
+  return map[err.code] || err.message || 'Something went wrong. Please try again.';
+}
 
+// ═══════════════════════════════════════════
+// DATA: Load & Save from Firestore
+// ═══════════════════════════════════════════
+
+function newUserData() {
+  return {
+    habits:       [],
+    habitLog:     {},
+    sleepLog:     {},
+    monthlyGoals: {}
+  };
+}
+
+async function loadUserProfile() {
+  const doc = await db.collection('users').doc(currentUser.uid).get();
+  userProfile = doc.exists ? doc.data() : { name: '', username: '', email: currentUser.email };
+}
+
+async function loadUserData() {
+  const doc = await db.collection('users').doc(currentUser.uid).collection('data').doc('tracker').get();
+  userData = doc.exists ? doc.data() : newUserData();
+
+  // Ensure all fields exist (in case of partial data)
+  if (!userData.habits)       userData.habits       = [];
+  if (!userData.habitLog)     userData.habitLog     = {};
+  if (!userData.sleepLog)     userData.sleepLog     = {};
+  if (!userData.monthlyGoals) userData.monthlyGoals = {};
+}
+
+// Debounced save — waits 800ms after last change, then saves to Firestore
+function saveUserData() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!currentUser || !userData) return;
+    try {
+      await db.collection('users').doc(currentUser.uid)
+        .collection('data').doc('tracker')
+        .set(userData, { merge: true });
+    } catch (err) {
+      console.error('Save error:', err);
+      showToast('⚠️ Error saving data. Will retry...');
+    }
+  }, 800);
+}
+
+// Force immediate save (for explicit Save buttons)
+async function saveUserDataNow() {
+  clearTimeout(saveTimer);
+  if (!currentUser || !userData) return;
+  try {
+    await db.collection('users').doc(currentUser.uid)
+      .collection('data').doc('tracker')
+      .set(userData, { merge: true });
+  } catch (err) {
+    console.error('Save error:', err);
+    showToast('⚠️ Error saving data.');
+  }
+}
+
+// ═══════════════════════════════════════════
+// LAUNCH APP (after auth + data loaded)
+// ═══════════════════════════════════════════
+
+function launchApp() {
   document.getElementById('auth-section').style.display = 'none';
   document.getElementById('app-section').style.display  = 'block';
 
-  document.getElementById('nav-username').textContent =
-    `👤 ${userObj.name || username}`;
-  document.getElementById('user-greeting').textContent =
-    `Welcome back, ${userObj.name || username}! ❄️`;
+  const displayName = userProfile.name || userProfile.username || 'User';
+  document.getElementById('nav-username').textContent   = `👤 ${displayName}`;
+  document.getElementById('user-greeting').textContent  = `Welcome back, ${displayName}! ❄️`;
 
   buildYearDropdown();
   syncDropdowns();
   renderAll();
+  hideLoading();
 }
 
 // ═══════════════════════════════════════════
@@ -175,8 +348,7 @@ function launchApp(username, userObj) {
 function buildYearDropdown() {
   const sel = document.getElementById('sel-year');
   sel.innerHTML = '';
-  const now  = new Date().getFullYear();
-  // Range: 5 years back → 2 years forward (covers winter arc multi-year)
+  const now = new Date().getFullYear();
   for (let y = now - 5; y <= now + 2; y++) {
     const opt = document.createElement('option');
     opt.value = y;
@@ -209,19 +381,16 @@ function getMonthTag() {
 // ═══════════════════════════════════════════
 
 function renderAll() {
-  updateMonthTags();
-  renderHabitsTable();
-  renderSleepTable();
-  renderMonthlyGoals();
-  renderMonthlySummary();
-}
-
-function updateMonthTags() {
   const tag = getMonthTag();
   document.getElementById('habits-month-label').textContent  = tag;
   document.getElementById('sleep-month-label').textContent   = tag;
   document.getElementById('monthly-month-label').textContent = tag;
   document.getElementById('summary-month-label').textContent = tag;
+
+  renderHabitsTable();
+  renderSleepTable();
+  renderMonthlyGoals();
+  renderMonthlySummary();
 }
 
 // ═══════════════════════════════════════════
@@ -242,7 +411,7 @@ function renderHabitsTable() {
   const isThisMonth = today.getFullYear() === currentYear && today.getMonth() === currentMonth;
   const todayDay    = today.getDate();
 
-  // Header row
+  // Header
   const hdr = document.getElementById('habits-header-row');
   hdr.innerHTML = '<th class="habit-name-col">HABITS / DAYS</th>';
   for (let d = 1; d <= days; d++) {
@@ -260,12 +429,11 @@ function renderHabitsTable() {
   userData.habits.forEach(habit => {
     const tr = document.createElement('tr');
 
-    // Sticky name cell
     const tdName  = document.createElement('td');
     const nameDiv = document.createElement('div');
     nameDiv.className = 'habit-name-cell';
 
-    const nameSpan  = document.createElement('span');
+    const nameSpan = document.createElement('span');
     nameSpan.className = 'habit-name-text';
     nameSpan.textContent = `${habit.emoji ? habit.emoji + ' ' : ''}${habit.name}`;
     nameSpan.title = habit.name;
@@ -281,10 +449,9 @@ function renderHabitsTable() {
     tdName.appendChild(nameDiv);
     tr.appendChild(tdName);
 
-    // Day cells
     if (!log[habit.id]) log[habit.id] = {};
     for (let d = 1; d <= days; d++) {
-      const td  = document.createElement('td');
+      const td = document.createElement('td');
       td.className = 'day-cell' + (isThisMonth && d === todayDay ? ' today-col' : '');
       const st = log[habit.id][d] || '';
       if (st === 'checked') { td.classList.add('checked'); td.innerHTML = '<span class="cell-icon">✓</span>'; }
@@ -295,7 +462,6 @@ function renderHabitsTable() {
     tbody.appendChild(tr);
   });
 
-  // Empty state
   if (userData.habits.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
@@ -320,7 +486,7 @@ function toggleHabitCell(habitId, day, cell) {
   if (next === 'missed')  { cell.classList.add('missed');  cell.innerHTML = '<span class="cell-icon">✕</span>'; }
 
   userData.habitLog[getMonthKey()] = log;
-  saveUserData(userData);
+  saveUserData(); // debounced
   renderMonthlySummary();
 }
 
@@ -338,7 +504,7 @@ function addHabit() {
   if (userData.habits.length >= 15) { showToast('Maximum 15 habits allowed.'); return; }
 
   userData.habits.push({ id: 'h_' + Date.now(), name, emoji: emoji || '' });
-  saveUserData(userData);
+  saveUserData();
   closeModal('modal-add-habit');
   renderHabitsTable();
   renderMonthlySummary();
@@ -349,7 +515,7 @@ function deleteHabit(habitId) {
   if (!confirm('Remove this habit and all its tracked data?')) return;
   userData.habits = userData.habits.filter(h => h.id !== habitId);
   for (const mk of Object.keys(userData.habitLog)) delete userData.habitLog[mk][habitId];
-  saveUserData(userData);
+  saveUserData();
   renderHabitsTable();
   renderMonthlySummary();
   showToast('Habit removed.');
@@ -374,7 +540,6 @@ function renderSleepTable() {
   const todayDay    = today.getDate();
   const log         = getSleepLog();
 
-  // Header
   const hdr = document.getElementById('sleep-header-row');
   hdr.innerHTML = '<th class="habit-name-col">Sleep / Days</th>';
   for (let d = 1; d <= days; d++) {
@@ -384,14 +549,11 @@ function renderSleepTable() {
     hdr.appendChild(th);
   }
 
-  // Body — one row per hour bucket
   const tbody = document.getElementById('sleep-body');
   tbody.innerHTML = '';
 
   SLEEP_HOURS.forEach(hrs => {
     const tr = document.createElement('tr');
-
-    // Label cell (sticky)
     const tdLabel = document.createElement('td');
     tdLabel.className = 'sleep-hr-label-cell';
     tdLabel.textContent = `${hrs} hrs`;
@@ -401,13 +563,10 @@ function renderSleepTable() {
       const td       = document.createElement('td');
       const loggedHr = log[d] || 0;
       td.className   = 'sleep-cell' + (isThisMonth && d === todayDay ? ' today-col' : '');
-
-      // Fill this row's cell if logged hours === this row
       if (loggedHr === hrs) {
         td.classList.add(`active-${hrs}`);
         td.innerHTML = '<span class="dot"></span>';
       }
-
       td.onclick = () => openSleepModal(d);
       tr.appendChild(td);
     }
@@ -424,13 +583,12 @@ function openSleepModal(day) {
   const suffix  = day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th';
   document.getElementById('sleep-modal-day').textContent =
     `${MONTH_NAMES[currentMonth]} ${day}${suffix}, ${currentYear}` +
-    (current ? ` — currently logged: ${current} hrs` : '');
+    (current ? ` — currently: ${current} hrs` : '');
 
-  // Highlight current selection in buttons
   document.querySelectorAll('.sleep-hr-btn:not(.btn-clear)').forEach(btn => {
     const hrs = parseInt(btn.textContent);
-    btn.style.background = (hrs === current) ? 'var(--blue)' : '';
-    btn.style.color = (hrs === current) ? 'white' : '';
+    btn.style.background  = (hrs === current) ? 'var(--blue)' : '';
+    btn.style.color       = (hrs === current) ? 'white' : '';
     btn.style.borderColor = (hrs === current) ? 'var(--blue)' : '';
   });
 
@@ -442,14 +600,14 @@ function setSleep(hrs) {
   if (hrs === 0) { delete log[sleepModalDay]; }
   else           { log[sleepModalDay] = hrs; }
   userData.sleepLog[getMonthKey()] = log;
-  saveUserData(userData);
+  saveUserData();
   closeModal('modal-sleep');
   renderSleepTable();
   if (hrs > 0) showToast(`😴 ${hrs} hrs logged for day ${sleepModalDay}`);
 }
 
 function renderSleepStats(log, daysInMonth) {
-  const entries = Object.values(log).filter(v => v > 0);
+  const entries  = Object.values(log).filter(v => v > 0);
   const avgBadge = document.getElementById('sleep-avg-badge');
 
   if (entries.length === 0) {
@@ -459,35 +617,19 @@ function renderSleepStats(log, daysInMonth) {
     return;
   }
 
-  const total  = entries.reduce((s, v) => s + v, 0);
-  const avg    = (total / entries.length).toFixed(1);
-  const best   = Math.max(...entries);
-  const worst  = Math.min(...entries);
-  const ideal  = entries.filter(v => v >= 7).length;
+  const avg   = (entries.reduce((s, v) => s + v, 0) / entries.length).toFixed(1);
+  const best  = Math.max(...entries);
+  const worst = Math.min(...entries);
+  const ideal = entries.filter(v => v >= 7).length;
 
   avgBadge.textContent = `Avg: ${avg} hrs`;
 
   document.getElementById('sleep-stats').innerHTML = `
-    <div class="sleep-stat">
-      <span class="stat-val">${avg}</span>
-      <span class="stat-lbl">Avg Hours / Night</span>
-    </div>
-    <div class="sleep-stat">
-      <span class="stat-val">${best}</span>
-      <span class="stat-lbl">Best Night</span>
-    </div>
-    <div class="sleep-stat">
-      <span class="stat-val">${worst}</span>
-      <span class="stat-lbl">Worst Night</span>
-    </div>
-    <div class="sleep-stat">
-      <span class="stat-val">${ideal}</span>
-      <span class="stat-lbl">Nights ≥ 7 hrs</span>
-    </div>
-    <div class="sleep-stat">
-      <span class="stat-val">${entries.length}/${daysInMonth}</span>
-      <span class="stat-lbl">Days Logged</span>
-    </div>
+    <div class="sleep-stat"><span class="stat-val">${avg}</span><span class="stat-lbl">Avg Hours / Night</span></div>
+    <div class="sleep-stat"><span class="stat-val">${best}</span><span class="stat-lbl">Best Night</span></div>
+    <div class="sleep-stat"><span class="stat-val">${worst}</span><span class="stat-lbl">Worst Night</span></div>
+    <div class="sleep-stat"><span class="stat-val">${ideal}</span><span class="stat-lbl">Nights ≥ 7 hrs</span></div>
+    <div class="sleep-stat"><span class="stat-val">${entries.length}/${daysInMonth}</span><span class="stat-lbl">Days Logged</span></div>
   `;
 }
 
@@ -503,7 +645,7 @@ function renderMonthlyGoals() {
   document.getElementById('monthly-improve').value  = data.improve  || '';
 }
 
-function saveMonthlyGoals() {
+async function saveMonthlyGoals() {
   const mk = getMonthKey();
   userData.monthlyGoals[mk] = {
     goal:     document.getElementById('monthly-goal').value,
@@ -511,18 +653,18 @@ function saveMonthlyGoals() {
     improve:  document.getElementById('monthly-improve').value,
     savedAt:  new Date().toISOString()
   };
-  saveUserData(userData);
-  flashSaveMsg('monthly-save-msg', '✓ Goals saved for ' + getMonthTag() + '!');
+  await saveUserDataNow();
+  flashSaveMsg('monthly-save-msg', '✓ Goals saved to cloud for ' + getMonthTag() + '!');
 }
 
 // ═══════════════════════════════════════════
-// MONTHLY HABIT SUMMARY
+// MONTHLY SUMMARY
 // ═══════════════════════════════════════════
 
 function renderMonthlySummary() {
-  const log          = getHabitLog();
-  const daysInMonth  = getDaysInMonth(currentYear, currentMonth);
-  const container    = document.getElementById('monthly-summary-content');
+  const log         = getHabitLog();
+  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+  const container   = document.getElementById('monthly-summary-content');
 
   if (userData.habits.length === 0) {
     container.innerHTML = '<p style="color:#bbb;font-size:0.84rem;">Add habits to see your monthly completion summary here.</p>';
@@ -547,10 +689,8 @@ function renderMonthlySummary() {
     card.className = 'summary-card';
     card.innerHTML = `
       <div class="sc-name">${habit.emoji ? habit.emoji + ' ' : ''}${habit.name}</div>
-      <div class="sc-bar-wrap">
-        <div class="sc-bar" style="width:${pct}%;background:${color};"></div>
-      </div>
-      <div class="sc-pct" style="color:${color}">${pct}% &nbsp;·&nbsp; ${checked}/${tracked} days</div>
+      <div class="sc-bar-wrap"><div class="sc-bar" style="width:${pct}%;background:${color};"></div></div>
+      <div class="sc-pct" style="color:${color}">${pct}% · ${checked}/${tracked} days</div>
     `;
     container.appendChild(card);
   });
@@ -577,7 +717,7 @@ function showToast(msg) {
   const old = document.querySelector('.toast');
   if (old) old.remove();
   const el = document.createElement('div');
-  el.className  = 'toast';
+  el.className   = 'toast';
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2700);
@@ -589,20 +729,3 @@ function flashSaveMsg(id, msg) {
   el.classList.add('visible');
   setTimeout(() => el.classList.remove('visible'), 2800);
 }
-
-// ═══════════════════════════════════════════
-// INIT — restore session on page load
-// ═══════════════════════════════════════════
-
-(function init() {
-  const sess = getSession();
-  if (sess) {
-    const users = getAllUsers();
-    if (users[sess]) {
-      launchApp(sess, users[sess]);
-      return;
-    }
-  }
-  document.getElementById('auth-section').style.display = 'block';
-  showPage('landing-page');
-})();
